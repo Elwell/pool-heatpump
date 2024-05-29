@@ -1,0 +1,582 @@
+---
+# ESPHome basic configuration for T-CAN485 board
+# https://www.lilygo.cc/products/t-can485
+# Andrew Elwell <Andrew.Elwell@gmail.com>, May 2024 with thanks to home assistant community posts and other online sources.
+
+substitutions:
+  name_prefix: Pool Heat Pump
+
+esphome:
+  name: t-can485-heatpump
+  comment: Modbus interface for pool heatpump
+  on_boot:
+    then:
+      - output.turn_on: bus_power
+      - output.turn_on: RS485_EN
+      - output.turn_on: RS485_SE
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: recommended
+
+logger:
+  level: INFO
+  hardware_uart: UART0
+
+web_server:
+  port: 80
+
+prometheus:
+
+wifi:
+  ssid: Telemetry_2G
+  password: !secret telemetry_pw
+  fast_connect: true
+  domain: .iot.elwell.au
+  enable_btm: true
+  enable_rrm: true
+
+
+api:
+  encryption:
+    key: !secret api_pw
+
+ota:
+  password: !secret ota_pw
+
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: GPIO4
+    num_leds: 1
+    rmt_channel: 0
+    chipset: ws2812
+    name: "RGB Indicator"
+
+
+# ACCESSIBLE GPIOS BESIDE POWER
+# GPIO18 - both
+# GPIO34 - INPUT ONLY
+# GPIO35 - INPUT ONLY
+# GPIO5 - outputs PWM signal at boot, strapping pin
+# GPIO12 - boot fails if pulled high, strapping pin
+# GPIO32 - both
+# GPIO33 - both
+# GPIO25 - both
+
+# example code implies that the 5V rail is controlled by GPIO16
+output:
+  - platform: gpio
+    pin: GPIO17
+    id: RS485_EN
+  - platform: gpio
+    pin: GPIO19
+    id: RS485_SE
+  - platform: gpio
+    pin: GPIO16
+    id: bus_power
+
+# Set up BLE for wifi provisioning
+esp32_improv:
+  authorizer: none
+
+# Sets up the improv via serial client for Wi-Fi provisioning
+improv_serial:
+
+# ESPHome doesn't seem to use uSD slot
+# sd_mosi: GPIO15
+# sd_miso: GPIO2
+# sd_sclk: GPIO14
+# sd_cs: GPIO13
+
+# RS485 via a MAX13487E
+# https://www.analog.com/media/en/technical-documentation/data-sheets/MAX13487E-MAX13488E.pdf
+uart:
+  rx_pin: GPIO21
+  tx_pin: GPIO22
+  baud_rate: 9600
+  id: u_modbus
+  # RS485_EN GPIO17 # Receiver Output Enable. Drive RE low to enable the RO. Drive RE high to let the AutoDirection circuit control the receiver. RE is a hot-swap input (see the Hot-Swap Capability section for more details).
+  # RS485_SE GPIO19 # Shutdown. Drive SHDN high to let the device operate in normal operation. Drive SHDN low to put the part in shutdown.
+
+modbus:
+  uart_id: u_modbus
+  id: c_modbus
+
+modbus_controller:
+  - id: heatpump
+    address: 1
+    modbus_id: c_modbus
+    update_interval: 5s
+
+switch:
+  # Read coils 0 - Power switch & 1 - Defrost
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Power
+    register_type: coil
+    address: 0
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Manual Defrost
+    register_type: coil
+    address: 1
+    disabled_by_default: true
+
+binary_sensor:
+  - platform: status
+    name: ${name_prefix} Online Status
+
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Power Status
+    register_type: discrete_input
+    address: 0
+    device_class: power
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Defrost Status
+    register_type: discrete_input
+    address: 1
+    device_class: cold
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} N/C (D1)
+    register_type: discrete_input
+    address: 2
+    disabled_by_default: true
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Remote Start (D2)
+    register_type: discrete_input
+    address: 3
+    device_class: running
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Water Flow (D3)
+    register_type: discrete_input
+    address: 4
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Low Pressure sw (D4')
+    register_type: discrete_input
+    address: 5
+    entity_category: diagnostic
+    device_class: problem
+    filters:
+      - invert:
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} High Pressure sw (D5')
+    register_type: discrete_input
+    address: 6
+    entity_category: diagnostic
+    device_class: problem
+    filters:
+      - invert:
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 1
+    register_type: discrete_input
+    address: 7
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Digout 2
+    register_type: discrete_input
+    address: 8
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 3
+    register_type: discrete_input
+    address: 9
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 4
+    register_type: discrete_input
+    address: 10
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 5
+    register_type: discrete_input
+    address: 11
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 6
+    register_type: discrete_input
+    address: 12
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 7
+    register_type: discrete_input
+    address: 13
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 8
+    register_type: discrete_input
+    address: 14
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DigOut 9
+    register_type: discrete_input
+    address: 15
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Fault / Error
+    register_type: discrete_input
+    address: 16
+    device_class: problem
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Compressor Running
+    register_type: discrete_input
+    address: 17
+    device_class: running
+
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E0 (unknown)
+    register_type: discrete_input
+    address: 48
+    force_new_range: true
+    device_class: problem
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E1 (High Pressure)
+    register_type: discrete_input
+    address: 49
+    device_class: problem
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E2 (Low Pressure)
+    register_type: discrete_input
+    address: 50
+    device_class: problem
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E3 (No Water)
+    register_type: discrete_input
+    address: 51
+    device_class: problem
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E4 (3ph sequence)
+    register_type: discrete_input
+    address: 52
+    device_class: problem
+    disabled_by_default: true
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E5 (PSU out of range)
+    register_type: discrete_input
+    address: 53
+    device_class: problem
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E6 (Low water flow)
+    register_type: discrete_input
+    address: 54
+    device_class: problem
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} E7 (Water outlet temp out of range)
+    register_type: discrete_input
+    address: 55
+    device_class: problem
+    entity_category: diagnostic
+
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Compressor Speed
+    unit_of_measurement: '%'
+    register_type: read
+    address: 0
+    value_type: U_WORD
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Compressor target frequency
+    unit_of_measurement: 'Hz'
+    register_type: read
+    address: 1
+    value_type: U_WORD
+    device_class: frequency
+    entity_category: diagnostic
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} PFC Voltage
+    id: pool_heatpump_pfc_V
+    unit_of_measurement: 'V'
+    register_type: read
+    address: 2
+    value_type: U_WORD
+    device_class: voltage
+    entity_category: diagnostic
+
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Water Inlet Temperature
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 3
+    force_new_range: true
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - offset: -60
+      - multiply: 0.5
+    accuracy_decimals: 1
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Water Outlet Temperature
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 4
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - offset: -60
+      - multiply: 0.5
+    accuracy_decimals: 1
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Ambient Temperature
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 5
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - offset: -60
+      - multiply: 0.5
+    accuracy_decimals: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Gas Exhaust Temperature
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 6
+    force_new_range: true
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - offset: -60
+      - multiply: 0.5
+    accuracy_decimals: 1
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Outer Coil Pipe Temperature (evaporator)
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 7
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - offset: -60
+      - multiply: 0.5
+    accuracy_decimals: 1
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Gas Return Temperature
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 8
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - offset: -60
+      - multiply: 0.5
+    accuracy_decimals: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Inner Coil Pipe Temperature (heat exchanger)
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 9
+    force_new_range: true
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - offset: -60
+      - multiply: 0.5
+    accuracy_decimals: 1
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Compressor Frequency
+    unit_of_measurement: 'Hz'
+    register_type: read
+    address: 10
+    value_type: U_WORD
+    device_class: frequency
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Compressor Current
+    id: pool_heatpump_pfc_A
+    unit_of_measurement: 'A'
+    register_type: read
+    address: 11
+    value_type: U_WORD
+    device_class: current
+    filters:
+      - multiply: 0.1
+    accuracy_decimals: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Cooling plate temperature
+    unit_of_measurement: '°C'
+    register_type: read
+    address: 12
+    force_new_range: true
+    value_type: U_WORD
+    device_class: temperature
+    filters:
+      - multiply: 0.5
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Expansion Valve opening
+    unit_of_measurement: '%'
+    register_type: read
+    address: 13
+    value_type: U_WORD
+    filters:
+      - multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} DC Fan Motor Speed
+    unit_of_measurement: 'RPM'
+    register_type: read
+    address: 14
+    value_type: U_WORD
+    #filters:
+    #  - multiply: 0.1
+
+
+  - platform: template
+    name: ${name_prefix} Power
+    id: pool_heatpump_power
+    device_class: power
+    unit_of_measurement: 'W'
+    lambda: |-
+      if (id(pool_heatpump_pfc_A).state) {
+      return id(pool_heatpump_pfc_A).state * id(pool_heatpump_pfc_V).state;
+      } else {
+      return 0.0;
+      }    
+    update_interval: 5s
+
+
+    # Discrete Inputs
+    # 0 - on/off
+    # 1 - defrosting
+    # 2-6 DIN1-5
+    # 7-15 OUT1-9
+    # 16 - Malfunction / protection indicator
+    # 17 - Compressor running demands
+    # 48-59 - E0->Eb
+    # 61 - Ed
+    # 64-74 - P0->Pa
+    # 80-91 - F0->Fb
+
+    # Holding Registers
+
+select:
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Function
+    address: 0
+    value_type: U_WORD
+    optionsmap:
+      'Auto': 0
+      'Heating': 1
+      'Cooling': 2
+    disabled_by_default: true
+
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Working mode
+    address: 1
+    value_type: U_WORD
+    optionsmap:
+      'Smart': 0
+      'Silence': 1
+      '???': 2
+      'Turbo': 3
+
+number:
+  - platform: modbus_controller
+    modbus_controller_id: heatpump
+    name: ${name_prefix} Heat setpoint
+    unit_of_measurement: "°C"
+    device_class: temperature
+    address: 3
+    force_new_range: true
+    value_type: U_WORD
+    min_value: 18  # docs say 12
+    max_value: 40
+    lambda: "return (x - 60)/2;"
+    write_lambda: "return ((x * 2) + 60);"
+
+    # *0 - Function [0: Auto, 1*: Heating, 2: Cooling]
+    #  1 - Working Mode Selection [0:Smart, *1: iSilence, 3: Turbo]
+    #  2 - Auto Mode temp range [84-140, *112 default, step:2] [type 1]
+    # *3 - Heating mode Temp range [84-140, *112 default, step:2] [type 1]
+    #  4 - Cooling mode Temp range [84-140, *112 default, step:2] [type 1]
+    #  5 - Water pump working mode (P0) - [0* Continuous, 1: Water temp control, 2: Time/Water temp control]
+    # *6 - Water pump working time setting (P1) 10-120(mins) default: 60, step 5
+    #  7 - compressor continuously running time be.. (30-90 mins, default: 30, step 1)
+    #  8 - Defrost start temperature (P3) - (26-60, temp type 1, def = 46, step 2 [-7C]
+    # *9 - Max defrost time (P4) mins (1-12, def 12, step 1)
+    # 10 - Defrost exit temp (P5) - type 1 (76-120, step 2, def: 86 = 13c
+    # 17 (may need to start at *15) -Expansion overheat level - 40-100, temp type 1, srep 2, def = 66 (3C)
+    #*18 - Expansion overheat level - 40-100, temp type 1, srep 2, def = 64 (2C)
+    # 25 - Power off restart memory - [0: power off, 1: restore pre-power-down stae]
+
+    # Input registers
+    #  0 - Compressor running speed (%)
+    #  1 - Compressor target frequency (Hz)
+    #  2 - PFC Voltage (V)
+    # *3 - Water inlet temp (AIN1) [type 1]
+    #  4 - Water outlet temp (AIN2)[type 1]
+    #  5 - Ambient Temp (AIN7) [type 1]
+    # *6 - Gas exhaust temp (AIN5) [divide by 2]
+    #  7 - Outer coil pipe temp (evaporator) AIN3 [type 1]
+    #  8 - Gas return temp (AIN6) - [type 1]
+    # *9 - Inner coil pipe temp (Heat exchanger) - AIN4 [type 1]
+    # 10 - Compressor Frequency (Hz)
+    # 11 - Compressor Current (x10 A)
+    #*12 - Cooling plate temp (divide by 2)
+    # 13 - Elect Expansion Valve Openo
+
+# Temp type 1 conversion:
+# Actual = (display - 60)/2, ie '116' = (116-60)/2 = 56/2 = 28C
+
+# CAN interface via a VP231 chip (SN65HVD231)
+# https://www.ti.com/lit/ds/symlink/sn65hvd232.pdf
+canbus:
+  - platform: esp32_can
+    tx_pin: GPIO26
+    rx_pin: GPIO27
+    can_id: 1
+    # GPIO23 seems to be 'RS' - Mode select pin: strong pull down to GND = high speed mode, strong pull up to VCC = low power mode, 10kΩ to 100kΩ pull down to GND = slope control mode
