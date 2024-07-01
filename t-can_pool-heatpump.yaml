@@ -44,6 +44,7 @@ api:
     key: !secret api_pw
 
 ota:
+  platform: esphome
   password: !secret ota_pw
 
 light:
